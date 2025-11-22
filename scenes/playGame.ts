@@ -41,8 +41,22 @@ export class PlayGame extends Phaser.Scene {
         this.gameStartTime = this.time.now;
         this.currentWave = 1;
 
-        // add player, enemies group and bullets group
-        this.player = this.physics.add.sprite(GameOptions.gameSize.width / 2, GameOptions.gameSize.height / 2, 'player');
+        // set world bounds to map size (this defines the playable area)
+        this.physics.world.setBounds(0, 0, GameOptions.mapSize.width, GameOptions.mapSize.height);
+
+        // set camera bounds to match world bounds
+        this.cameras.main.setBounds(0, 0, GameOptions.mapSize.width, GameOptions.mapSize.height);
+
+        // add player at center of map (not viewport)
+        this.player = this.physics.add.sprite(GameOptions.mapSize.width / 2, GameOptions.mapSize.height / 2, 'player');
+        this.player.setCollideWorldBounds(true); // prevent player from going outside map
+
+        // make camera follow player
+        this.cameras.main.startFollow(this.player, true, 0.1, 0.1); // smooth camera follow
+
+        // create boundary border
+        this.createBoundaryBorder();
+
         this.enemyGroup = this.physics.add.group();
         const bulletGroup : Phaser.Physics.Arcade.Group = this.physics.add.group();
 
@@ -64,19 +78,29 @@ export class PlayGame extends Phaser.Scene {
             'right' : Phaser.Input.Keyboard.KeyCodes.D
         });
         
-        // set outer rectangle and inner rectangle; enemy spawn area is between these rectangles
-        const outerRectangle : Phaser.Geom.Rectangle = new Phaser.Geom.Rectangle(-100, -100, GameOptions.gameSize.width + 200, GameOptions.gameSize.height + 200);
-        const innerRectangle : Phaser.Geom.Rectangle = new Phaser.Geom.Rectangle(-50, -50, GameOptions.gameSize.width + 100, GameOptions.gameSize.height + 100);
-
         // timer event to add enemies
         this.time.addEvent({
             delay       : GameOptions.enemyRate,
             loop        : true,
             callback    : () => {
-                const spawnPoint : Phaser.Geom.Point = Phaser.Geom.Rectangle.RandomOutside(outerRectangle, innerRectangle);
+                // spawn enemies at a good distance from player (not too close, not too far)
+                const minDistance : number = 300;  // minimum distance from player
+                const maxDistance : number = 500;  // maximum distance from player
+                const angle : number = Math.random() * Math.PI * 2; // random angle around player
+                const distance : number = minDistance + Math.random() * (maxDistance - minDistance); // random distance in range
+                
+                // calculate spawn position relative to player
+                const spawnX : number = this.player.x + Math.cos(angle) * distance;
+                const spawnY : number = this.player.y + Math.sin(angle) * distance;
+                
+                // clamp to map bounds
+                const margin : number = 50; // keep enemies away from map edges
+                const clampedX : number = Phaser.Math.Clamp(spawnX, margin, GameOptions.mapSize.width - margin);
+                const clampedY : number = Phaser.Math.Clamp(spawnY, margin, GameOptions.mapSize.height - margin);
+                
                 // randomly select an enemy sprite from available options
                 const randomEnemyKey : string = this.enemySprites[Math.floor(Math.random() * this.enemySprites.length)];
-                const enemy : Phaser.Types.Physics.Arcade.SpriteWithDynamicBody = this.physics.add.sprite(spawnPoint.x, spawnPoint.y, randomEnemyKey);
+                const enemy : Phaser.Types.Physics.Arcade.SpriteWithDynamicBody = this.physics.add.sprite(clampedX, clampedY, randomEnemyKey);
                 // set consistent size for all enemy tokens
                 enemy.setDisplaySize(60, 60);
                 this.enemyGroup.add(enemy); 
@@ -120,6 +144,15 @@ export class PlayGame extends Phaser.Scene {
         this.physics.add.overlap(this.player, this.enemyGroup, () => {
             this.takeDamage();
         });  
+    }
+
+    // method to create boundary border
+    createBoundaryBorder() : void {
+        const boundaryGraphics : Phaser.GameObjects.Graphics = this.add.graphics();
+        boundaryGraphics.lineStyle(GameOptions.boundaryWidth, GameOptions.boundaryColor, 1);
+        // draw rectangle border around the map
+        boundaryGraphics.strokeRect(0, 0, GameOptions.mapSize.width, GameOptions.mapSize.height);
+        boundaryGraphics.setDepth(500); // put it above background but below game objects
     }
 
     // method to create health bar UI

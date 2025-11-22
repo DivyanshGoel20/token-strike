@@ -8,8 +8,8 @@ export const GameOptions : any = {
         height              : 800       // viewport height, in pixels
     },
     mapSize : {
-        width               : 4000,     // map width, in pixels (much larger than viewport)
-        height              : 4000      // map height, in pixels (much larger than viewport)
+        width               : 2000,     // map width, in pixels (2.5x viewport)
+        height              : 2000      // map height, in pixels (2.5x viewport)
     },
     gameBackgroundColor     : 0x1a1a2e, // game background color (darker blue)
     boundaryColor           : 0xff0000, // boundary line color (red)
