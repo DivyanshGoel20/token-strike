@@ -23,6 +23,8 @@ export const GameOptions : any = {
     playerMaxHealth         : 5,        // maximum player health
     healthBarWidth          : 50,       // health bar width, in pixels
     healthBarHeight         : 6,        // health bar height, in pixels
-    healthBarOffsetY        : 35        // health bar offset below player, in pixels
+    healthBarOffsetY        : 35,       // health bar offset below player, in pixels
+    waveAnnounceDuration    : 3500,     // wave announcement display duration, in milliseconds
+    waveMinutesPerWave      : 1         // minutes per wave
     
 }

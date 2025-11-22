@@ -20,6 +20,10 @@ export class PlayGame extends Phaser.Scene {
     healthBarBg : Phaser.GameObjects.Rectangle | null = null;           // health bar background
     healthBarFg  : Phaser.GameObjects.Rectangle | null = null;           // health bar foreground (actual health)
     isInvulnerable : boolean = false;                                    // invulnerability flag to prevent multiple hits
+    gameStartTime : number = 0;                                          // game start time in milliseconds
+    timerText     : Phaser.GameObjects.Text | null = null;              // timer display text
+    waveText      : Phaser.GameObjects.Text | null = null;              // wave announcement text
+    currentWave   : number = 1;                                         // current wave number
 
     // method to be called once the instance has been created
     create(data? : any) : void {
@@ -33,6 +37,10 @@ export class PlayGame extends Phaser.Scene {
         this.playerHealth = GameOptions.playerMaxHealth;
         this.isInvulnerable = false;
 
+        // initialize timer and wave
+        this.gameStartTime = this.time.now;
+        this.currentWave = 1;
+
         // add player, enemies group and bullets group
         this.player = this.physics.add.sprite(GameOptions.gameSize.width / 2, GameOptions.gameSize.height / 2, 'player');
         this.enemyGroup = this.physics.add.group();
@@ -40,6 +48,12 @@ export class PlayGame extends Phaser.Scene {
 
         // create health bar
         this.createHealthBar();
+
+        // create timer display
+        this.createTimerDisplay();
+
+        // show initial wave announcement
+        this.showWaveAnnouncement(1);
 
         // set keyboard controls
         const keyboard : Phaser.Input.Keyboard.KeyboardPlugin = this.input.keyboard as Phaser.Input.Keyboard.KeyboardPlugin; 
@@ -102,8 +116,8 @@ export class PlayGame extends Phaser.Scene {
             enemy.body.checkCollision.none = true;
         });
 
-        // player Vs enemy collision
-        this.physics.add.collider(this.player, this.enemyGroup, () => {
+        // player Vs enemy collision (using overlap so player can pass through enemies)
+        this.physics.add.overlap(this.player, this.enemyGroup, () => {
             this.takeDamage();
         });  
     }
@@ -214,5 +228,104 @@ export class PlayGame extends Phaser.Scene {
 
         // update health bar position to follow player
         this.updateHealthBar();
+
+        // update timer
+        this.updateTimer();
+
+        // check for wave changes
+        this.checkWaveChange();
+    }
+
+    // method to create timer display
+    createTimerDisplay() : void {
+        this.timerText = this.add.text(
+            GameOptions.gameSize.width / 2, 
+            60, // positioned a little down from top
+            '00:00', 
+            {
+                fontSize: '40px',
+                color: '#ffffff',
+                fontFamily: 'Arial',
+                stroke: '#000000',
+                strokeThickness: 4
+            }
+        );
+        this.timerText.setOrigin(0.5, 0.5); // center the text
+        this.timerText.setDepth(2000); // make sure it's on top
+        this.timerText.setScrollFactor(0); // fixed to camera
+    }
+
+    // method to update timer display
+    updateTimer() : void {
+        if (this.timerText) {
+            const elapsedTime : number = this.time.now - this.gameStartTime;
+            const totalSeconds : number = Math.floor(elapsedTime / 1000);
+            const minutes : number = Math.floor(totalSeconds / 60);
+            const seconds : number = totalSeconds % 60;
+            
+            // format as MM:SS
+            const minutesStr : string = minutes.toString().padStart(2, '0');
+            const secondsStr : string = seconds.toString().padStart(2, '0');
+            this.timerText.setText(`${minutesStr}:${secondsStr}`);
+        }
+    }
+
+    // method to check for wave changes
+    checkWaveChange() : void {
+        const elapsedTime : number = this.time.now - this.gameStartTime;
+        const elapsedMinutes : number = Math.floor(elapsedTime / (1000 * 60 * GameOptions.waveMinutesPerWave));
+        const newWave : number = elapsedMinutes + 1; // Wave 1 starts at 0 minutes
+
+        if (newWave > this.currentWave) {
+            this.currentWave = newWave;
+            this.showWaveAnnouncement(newWave);
+        }
+    }
+
+    // method to show wave announcement
+    showWaveAnnouncement(waveNumber : number) : void {
+        // remove previous wave text if it exists
+        if (this.waveText) {
+            this.waveText.destroy();
+        }
+
+        // create wave announcement text
+        this.waveText = this.add.text(
+            GameOptions.gameSize.width / 2,
+            GameOptions.gameSize.height / 2,
+            `WAVE ${waveNumber}`,
+            {
+                fontSize: '72px',
+                color: '#ffd700', // gold color
+                fontFamily: 'Arial',
+                stroke: '#000000',
+                strokeThickness: 6,
+                shadow: {
+                    offsetX: 4,
+                    offsetY: 4,
+                    color: '#000000',
+                    blur: 8,
+                    stroke: true,
+                    fill: true
+                }
+            }
+        );
+        this.waveText.setOrigin(0.5, 0.5); // center the text
+        this.waveText.setDepth(3000); // make sure it's on top
+        this.waveText.setScrollFactor(0); // fixed to camera
+
+        // fade out animation
+        this.tweens.add({
+            targets: this.waveText,
+            alpha: 0,
+            duration: GameOptions.waveAnnounceDuration,
+            ease: 'Power2',
+            onComplete: () => {
+                if (this.waveText) {
+                    this.waveText.destroy();
+                    this.waveText = null;
+                }
+            }
+        });
     }
 }
