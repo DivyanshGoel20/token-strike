@@ -1,0 +1,28 @@
+// CLASS TO PRELOAD ASSETS
+
+// PreloadAssets class extends Phaser.Scene class
+export class PreloadAssets extends Phaser.Scene {
+  
+    // constructor    
+    constructor() {
+        super({
+            key : 'PreloadAssets'
+        });
+    }
+  
+    // method to be called during class preloading
+    preload() : void {
+ 
+        // load images
+        this.load.image('enemy', 'assets/sprites/enemy.png');   // the big circle, aka the planet
+        this.load.image('player', 'assets/sprites/player.png'); // the player
+        this.load.image('bullet', 'assets/sprites/bullet.png'); // the spike 
+    }
+  
+    // method to be executed when the scene is created
+    create() : void {
+
+        // start PlayGame scene
+        this.scene.start('PlayGame');
+    }
+}
