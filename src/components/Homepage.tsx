@@ -47,8 +47,38 @@ export function Homepage() {
 	console.log('Homepage - Balances:', balances)
 
 	const handleStartGame = () => {
+		// Try to open in a new window first (works in regular browsers)
+		try {
+			const newWindow = window.open('/game.html', 'game', 'width=900,height=900,resizable=yes,scrollbars=no')
+			
+			if (newWindow) {
+				// Successfully opened in new window
+				newWindow.focus()
+				return
+			}
+		} catch (e) {
+			console.log('window.open() failed, falling back to modal:', e)
+		}
+		
+		// Fallback: Open in fullscreen modal (works in mini-apps and when popups are blocked)
 		setGameStarted(true)
 	}
+
+	const handleGameClose = () => {
+		setGameStarted(false)
+	}
+
+	// Listen for game over event (when game ends in modal mode)
+	useEffect(() => {
+		const handleGameOver = () => {
+			setGameStarted(false)
+		}
+
+		window.addEventListener('gameOver', handleGameOver)
+		return () => {
+			window.removeEventListener('gameOver', handleGameOver)
+		}
+	}, [])
 
 	const handleDepositMoney = () => {
 		setDepositModalOpen(true)
@@ -84,21 +114,6 @@ export function Homepage() {
 		}, 2000)
 	}
 
-	const handleGameClose = () => {
-		setGameStarted(false)
-	}
-
-	// Listen for game over event
-	useEffect(() => {
-		const handleGameOver = () => {
-			setGameStarted(false)
-		}
-
-		window.addEventListener('gameOver', handleGameOver)
-		return () => {
-			window.removeEventListener('gameOver', handleGameOver)
-		}
-	}, [])
 
 	return (
 		<div className="homepage">
@@ -156,6 +171,7 @@ export function Homepage() {
 				mode="withdraw"
 			/>
 
+			{/* Fallback: Show game in modal if window.open() failed (for mini-apps) */}
 			{gameStarted && (
 				<Game onClose={handleGameClose} />
 			)}

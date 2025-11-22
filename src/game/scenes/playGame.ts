@@ -13,8 +13,9 @@ export class PlayGame extends Phaser.Scene {
     }
 
     controlKeys : any;                                                  // keys used to move the player
-    player      : Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;    // the player
-    enemyGroup  : Phaser.Physics.Arcade.Group;                          // group with all enemies
+    player      : Phaser.Types.Physics.Arcade.SpriteWithDynamicBody | null = null;    // the player
+    enemyGroup  : Phaser.Physics.Arcade.Group | null = null;                          // group with all enemies
+    bulletGroup : Phaser.Physics.Arcade.Group | null = null;            // group with all bullets
     enemySprites: string[] = [];                                        // array of available enemy sprite keys
     playerHealth: number = GameOptions.playerMaxHealth;                 // current player health
     healthBarBg : Phaser.GameObjects.Rectangle | null = null;           // health bar background
@@ -24,6 +25,8 @@ export class PlayGame extends Phaser.Scene {
     timerText     : Phaser.GameObjects.Text | null = null;              // timer display text
     waveText      : Phaser.GameObjects.Text | null = null;              // wave announcement text
     currentWave   : number = 1;                                         // current wave number
+    enemyTimerEvent : Phaser.Time.TimerEvent | null = null;             // timer event for enemies
+    bulletTimerEvent : Phaser.Time.TimerEvent | null = null;            // timer event for bullets
 
     // method to be called once the instance has been created
     create(data? : any) : void {
@@ -58,7 +61,7 @@ export class PlayGame extends Phaser.Scene {
         this.createBoundaryBorder();
 
         this.enemyGroup = this.physics.add.group();
-        const bulletGroup : Phaser.Physics.Arcade.Group = this.physics.add.group();
+        this.bulletGroup = this.physics.add.group();
 
         // create health bar
         this.createHealthBar();
@@ -79,10 +82,12 @@ export class PlayGame extends Phaser.Scene {
         });
         
         // timer event to add enemies
-        this.time.addEvent({
+        this.enemyTimerEvent = this.time.addEvent({
             delay       : GameOptions.enemyRate,
             loop        : true,
             callback    : () => {
+                if (!this.player || !this.enemyGroup) return;
+                
                 // spawn enemies at a good distance from player (not too close, not too far)
                 const minDistance : number = 300;  // minimum distance from player
                 const maxDistance : number = 500;  // maximum distance from player
@@ -108,10 +113,12 @@ export class PlayGame extends Phaser.Scene {
         });
 
         // timer event to fire bullets
-        this.time.addEvent({
+        this.bulletTimerEvent = this.time.addEvent({
             delay       : GameOptions.bulletRate,
             loop        : true,
             callback    : () => {
+                if (!this.player || !this.enemyGroup || !this.bulletGroup) return;
+                
                 const closestEnemy : any = this.physics.closest(this.player, this.enemyGroup.getMatching('visible', true));
                 if (closestEnemy != null) {
                     const bullet : Phaser.Types.Physics.Arcade.SpriteWithDynamicBody = this.physics.add.sprite(this.player.x, this.player.y, 'bullet');
@@ -126,24 +133,55 @@ export class PlayGame extends Phaser.Scene {
                     // set smaller collision body (keep collision box small)
                     bullet.body.setSize(10, 10);
                     
-                    bulletGroup.add(bullet); 
+                    this.bulletGroup.add(bullet); 
                     this.physics.moveToObject(bullet, closestEnemy, GameOptions.bulletSpeed);
                 }
             },
         });
 
         // bullet Vs enemy collision
-        this.physics.add.collider(bulletGroup, this.enemyGroup, (bullet : any, enemy : any) => {
-            bulletGroup.killAndHide(bullet);
-            bullet.body.checkCollision.none = true;
-            this.enemyGroup.killAndHide(enemy);
-            enemy.body.checkCollision.none = true;
-        });
+        if (this.bulletGroup && this.enemyGroup) {
+            this.physics.add.collider(this.bulletGroup, this.enemyGroup, (bullet : any, enemy : any) => {
+                this.bulletGroup!.killAndHide(bullet);
+                bullet.body.checkCollision.none = true;
+                this.enemyGroup!.killAndHide(enemy);
+                enemy.body.checkCollision.none = true;
+            });
+        }
 
         // player Vs enemy collision (using overlap so player can pass through enemies)
-        this.physics.add.overlap(this.player, this.enemyGroup, () => {
-            this.takeDamage();
-        });  
+        if (this.player && this.enemyGroup) {
+            this.physics.add.overlap(this.player, this.enemyGroup, () => {
+                this.takeDamage();
+            });
+        }  
+    }
+
+    // Cleanup method called when scene is shutdown
+    shutdown() : void {
+        // Stop all timers
+        if (this.enemyTimerEvent) {
+            this.enemyTimerEvent.remove();
+            this.enemyTimerEvent = null;
+        }
+        if (this.bulletTimerEvent) {
+            this.bulletTimerEvent.remove();
+            this.bulletTimerEvent = null;
+        }
+
+        // Stop all tweens
+        this.tweens.killAll();
+
+        // Clear all timers
+        this.time.removeAllEvents();
+
+        // Clear groups
+        if (this.enemyGroup) {
+            this.enemyGroup.clear(true, true);
+        }
+        if (this.bulletGroup) {
+            this.bulletGroup.clear(true, true);
+        }
     }
 
     // method to create boundary border
@@ -157,6 +195,8 @@ export class PlayGame extends Phaser.Scene {
 
     // method to create health bar UI
     createHealthBar() : void {
+        if (!this.player) return;
+        
         // health bar background (red/dark)
         this.healthBarBg = this.add.rectangle(
             this.player.x,
@@ -181,26 +221,26 @@ export class PlayGame extends Phaser.Scene {
 
     // method to update health bar position and visual
     updateHealthBar() : void {
-        if (this.healthBarBg && this.healthBarFg) {
-            // update position to follow player
-            this.healthBarBg.setPosition(this.player.x, this.player.y + GameOptions.healthBarOffsetY);
-            this.healthBarFg.setPosition(
-                this.player.x - (GameOptions.healthBarWidth / 2),
-                this.player.y + GameOptions.healthBarOffsetY
-            );
+        if (!this.healthBarBg || !this.healthBarFg || !this.player) return;
+        
+        // update position to follow player
+        this.healthBarBg.setPosition(this.player.x, this.player.y + GameOptions.healthBarOffsetY);
+        this.healthBarFg.setPosition(
+            this.player.x - (GameOptions.healthBarWidth / 2),
+            this.player.y + GameOptions.healthBarOffsetY
+        );
 
-            // update health bar width based on current health
-            const healthPercentage : number = this.playerHealth / GameOptions.playerMaxHealth;
-            this.healthBarFg.setSize(GameOptions.healthBarWidth * healthPercentage, GameOptions.healthBarHeight);
+        // update health bar width based on current health
+        const healthPercentage : number = this.playerHealth / GameOptions.playerMaxHealth;
+        this.healthBarFg.setSize(GameOptions.healthBarWidth * healthPercentage, GameOptions.healthBarHeight);
 
-            // change color based on health (green -> yellow -> red)
-            if (healthPercentage > 0.6) {
-                this.healthBarFg.setFillStyle(0x00ff00); // green
-            } else if (healthPercentage > 0.3) {
-                this.healthBarFg.setFillStyle(0xffff00); // yellow
-            } else {
-                this.healthBarFg.setFillStyle(0xff0000); // red
-            }
+        // change color based on health (green -> yellow -> red)
+        if (healthPercentage > 0.6) {
+            this.healthBarFg.setFillStyle(0x00ff00); // green
+        } else if (healthPercentage > 0.3) {
+            this.healthBarFg.setFillStyle(0xffff00); // yellow
+        } else {
+            this.healthBarFg.setFillStyle(0xff0000); // red
         }
     }
 
@@ -223,11 +263,38 @@ export class PlayGame extends Phaser.Scene {
 
         // end game if health reaches 0
         if (this.playerHealth <= 0) {
-            // Stop the game and trigger game over
-            this.scene.pause();
-            // Dispatch custom event to notify React component
-            window.dispatchEvent(new CustomEvent('gameOver'));
+            this.endGame();
         }
+    }
+
+    // method to properly end the game
+    endGame() : void {
+        // Stop all timers
+        if (this.enemyTimerEvent) {
+            this.enemyTimerEvent.remove();
+            this.enemyTimerEvent = null;
+        }
+        if (this.bulletTimerEvent) {
+            this.bulletTimerEvent.remove();
+            this.bulletTimerEvent = null;
+        }
+
+        // Stop all tweens
+        this.tweens.killAll();
+
+        // Stop the scene
+        this.scene.pause();
+        
+        // Clear all physics bodies
+        if (this.player) {
+            this.physics.world.disable(this.player);
+        }
+        if (this.enemyGroup) {
+            this.enemyGroup.clear(true, true);
+        }
+        
+        // Dispatch custom event to notify React component
+        window.dispatchEvent(new CustomEvent('gameOver'));
     }
 
     // metod to be called at each frame
@@ -248,6 +315,8 @@ export class PlayGame extends Phaser.Scene {
             movementDirection.y ++;    
         }
         
+        if (!this.player) return;
+        
         // set player velocity according to movement direction
         this.player.setVelocity(0, 0);
         if (movementDirection.x == 0 || movementDirection.y == 0) {
@@ -258,9 +327,11 @@ export class PlayGame extends Phaser.Scene {
         } 
 
         // move enemies towards player
-        this.enemyGroup.getMatching('visible', true).forEach((enemy : any) => {
-            this.physics.moveToObject(enemy, this.player, GameOptions.enemySpeed);
-        });
+        if (this.enemyGroup && this.player) {
+            this.enemyGroup.getMatching('visible', true).forEach((enemy : any) => {
+                this.physics.moveToObject(enemy, this.player!, GameOptions.enemySpeed);
+            });
+        }
 
         // update health bar position to follow player
         this.updateHealthBar();

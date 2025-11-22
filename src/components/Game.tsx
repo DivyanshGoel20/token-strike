@@ -23,6 +23,9 @@ export function Game({ onClose }: GameProps) {
 		// Only initialize if container exists
 		if (!containerRef.current) return
 
+		let initTimeout: NodeJS.Timeout | null = null
+		let isMounted = true
+
 		// Clean up any existing game instance first
 		if (gameRef.current) {
 			try {
@@ -34,8 +37,8 @@ export function Game({ onClose }: GameProps) {
 		}
 
 		// Small delay to ensure DOM is ready
-		const initTimeout = setTimeout(() => {
-			if (!containerRef.current) return
+		initTimeout = setTimeout(() => {
+			if (!containerRef.current || !isMounted) return
 
 			// object to initialize the Scale Manager
 			const scaleObject: Phaser.Types.Core.ScaleConfig = {
@@ -63,7 +66,9 @@ export function Game({ onClose }: GameProps) {
 
 			// the game itself
 			try {
-				gameRef.current = new Phaser.Game(configObject)
+				if (isMounted && containerRef.current) {
+					gameRef.current = new Phaser.Game(configObject)
+				}
 			} catch (e) {
 				console.error('Error initializing game:', e)
 			}
@@ -71,9 +76,19 @@ export function Game({ onClose }: GameProps) {
 
 		// Cleanup function
 		return () => {
-			clearTimeout(initTimeout)
+			isMounted = false
+			if (initTimeout) {
+				clearTimeout(initTimeout)
+			}
 			if (gameRef.current) {
 				try {
+					// Stop all scenes first
+					const scenes = gameRef.current.scene.getScenes(true)
+					scenes.forEach(scene => {
+						if (scene.scene.isActive() || scene.scene.isPaused()) {
+							scene.scene.stop()
+						}
+					})
 					gameRef.current.destroy(true)
 				} catch (e) {
 					console.warn('Error destroying game on cleanup:', e)
@@ -87,6 +102,13 @@ export function Game({ onClose }: GameProps) {
 		// Destroy game before closing
 		if (gameRef.current) {
 			try {
+				// Stop all scenes first
+				const scenes = gameRef.current.scene.getScenes(true)
+				scenes.forEach(scene => {
+					if (scene.scene.isActive() || scene.scene.isPaused()) {
+						scene.scene.stop()
+					}
+				})
 				gameRef.current.destroy(true)
 			} catch (e) {
 				console.warn('Error destroying game on close:', e)
