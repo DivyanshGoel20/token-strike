@@ -16,7 +16,7 @@ export const GameOptions : any = {
     boundaryWidth           : 4,        // boundary line width, in pixels
 
     playerSpeed             : 100,      // player speed, in pixels per second
-    enemySpeed              : 50,       // enemy speed, in pixels per second
+    enemySpeed              : 35,       // enemy speed, in pixels per second (reduced from 50)
     bulletSpeed             : 200,      // bullet speed, in pixels per second
     bulletRate              : 1000,     // bullet rate, in milliseconds per bullet
     enemyRate               : 800,      // enemy rate, in milliseconds per enemy

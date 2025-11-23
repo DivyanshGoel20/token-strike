@@ -6,6 +6,7 @@ import { GAME_BANK_ADDRESS, GAME_BANK_ABI, TOKEN_INFO, TOKENS } from '../config/
 import { TransactionModal } from './TransactionModal'
 import { Game } from './Game'
 import { useWorldIDVerification } from '../hooks/useWorldIDVerification'
+import { isMobileDevice } from '../utils/mobileDetection'
 import './Homepage.css'
 
 export function Homepage() {
@@ -222,12 +223,23 @@ export function Homepage() {
 		}, 2000)
 	}
 
+	const isMobile = isMobileDevice()
 
 	return (
 		<div className="homepage">
 			<div className="homepage-container">
 				<h1 className="homepage-title">Token Strike</h1>
 				<p className="homepage-subtitle">On-chain Gaming with Real Assets</p>
+				{isMobile && (
+					<p className="mobile-hint" style={{ 
+						fontSize: '0.875rem', 
+						color: 'rgba(255, 255, 255, 0.7)', 
+						marginBottom: '1rem',
+						textAlign: 'center'
+					}}>
+						💡 Tap "Connect Wallet" and select WalletConnect for quick mobile sign-in
+					</p>
+				)}
 				<div className="homepage-buttons">
 					<ConnectButton />
 					

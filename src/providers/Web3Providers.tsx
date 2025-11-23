@@ -66,9 +66,8 @@ export const worldChainSepolia: Chain = {
 	},
 	rpcUrls: {
 		default: {
-			// Empty array forces wagmi to use wallet's RPC provider when connected
-			// This avoids CORS issues since wallet providers handle RPC calls
-			http: [],
+			// Use a valid RPC URL to avoid transport errors
+			http: ['https://worldchain-sepolia-rpc.publicnode.com'],
 		},
 	},
 	blockExplorers: {
@@ -82,11 +81,13 @@ export const worldChainSepolia: Chain = {
 
 // Build config from RainbowKit helpers
 // getDefaultConfig automatically includes popular wallets including MetaMask, Rainbow, WalletConnect, etc.
+// WalletConnect is automatically available and works great on mobile devices
 // For Rabby and other wallets, they should be detected automatically if installed
+// Only include mainnet chains to avoid RPC issues - users can switch chains in their wallet
 export const wagmiConfig = getDefaultConfig({
 	appName: 'Token Strike',
 	projectId,
-	chains: [mainnet, base, arbitrum, worldChain, worldChainSepolia],
+	chains: [worldChain, mainnet, base, arbitrum], // World Chain first, then others
 	ssr: false,
 })
 

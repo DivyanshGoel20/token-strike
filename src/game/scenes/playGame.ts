@@ -14,6 +14,8 @@ export class PlayGame extends Phaser.Scene {
 
     controlKeys : any;                                                  // keys used to move the player
     player      : Phaser.Types.Physics.Arcade.SpriteWithDynamicBody | null = null;    // the player
+    joystick    : any = null;                                           // virtual joystick for mobile
+    isMobile    : boolean = false;                                      // mobile device detection
     enemyGroup  : Phaser.Physics.Arcade.Group | null = null;                          // group with all enemies
     bulletGroup : Phaser.Physics.Arcade.Group | null = null;            // group with all bullets
     enemySprites: string[] = [];                                        // array of available enemy sprite keys
@@ -34,6 +36,18 @@ export class PlayGame extends Phaser.Scene {
     activeBullets : Set<Phaser.Types.Physics.Arcade.SpriteWithDynamicBody> = new Set(); // track bullets in flight
     backgroundStars : any = null; // background stars particle system
     backgroundGraphics : Phaser.GameObjects.Graphics | null = null; // background graphics
+    oreGroup : Phaser.Physics.Arcade.Group | null = null; // group with all ores
+    oresCollected : number = 0; // number of ores collected
+    oresNeededForUpgrade : number = 10; // ores needed to fill the bar
+    upgradeBarBg : Phaser.GameObjects.Rectangle | null = null; // upgrade bar background
+    upgradeBarFg : Phaser.GameObjects.Rectangle | null = null; // upgrade bar foreground
+    upgradeText : Phaser.GameObjects.Text | null = null; // upgrade notification text
+    // Upgrade stats (reset on game start)
+    speedMultiplier : number = 1.0; // player speed multiplier
+    bulletRateMultiplier : number = 1.0; // bullet rate multiplier (lower = faster)
+    damageBonus : number = 0; // additional damage bonus
+    maxHealthBonus : number = 0; // additional max health
+    bulletsPerShot : number = 1; // number of bullets fired per shot
 
     // method to be called once the instance has been created
     create(data? : any) : void {
@@ -54,8 +68,8 @@ export class PlayGame extends Phaser.Scene {
             this.bulletDamage = 1;
         }
 
-        // initialize player health
-        this.playerHealth = GameOptions.playerMaxHealth;
+        // initialize player health (with bonus)
+        this.playerHealth = GameOptions.playerMaxHealth + this.maxHealthBonus;
         this.isInvulnerable = false;
 
         // initialize timer and wave
@@ -64,6 +78,14 @@ export class PlayGame extends Phaser.Scene {
         
         // initialize enemy health map
         this.enemyHealthMap.clear();
+        
+        // Reset all upgrade stats
+        this.speedMultiplier = 1.0;
+        this.bulletRateMultiplier = 1.0;
+        this.damageBonus = 0;
+        this.maxHealthBonus = 0;
+        this.bulletsPerShot = 1;
+        this.oresCollected = 0;
 
         // set world bounds to map size (this defines the playable area)
         this.physics.world.setBounds(0, 0, GameOptions.mapSize.width, GameOptions.mapSize.height);
@@ -76,6 +98,10 @@ export class PlayGame extends Phaser.Scene {
         this.player.setCollideWorldBounds(true); // prevent player from going outside map
         // set player size to be smaller
         this.player.setDisplaySize(90, 90);
+        // Make player darker by applying a tint
+        this.player.setTint(0x666666); // Dark gray tint to make player darker
+        // Make hitbox smaller than visual size (reduce collision area)
+        this.player.body.setSize(50, 50); // Smaller hitbox than display size (90x90)
 
         // make camera follow player
         this.cameras.main.startFollow(this.player, true, 0.1, 0.1); // smooth camera follow
@@ -88,6 +114,7 @@ export class PlayGame extends Phaser.Scene {
 
         this.enemyGroup = this.physics.add.group();
         this.bulletGroup = this.physics.add.group();
+        this.oreGroup = this.physics.add.group();
 
         // create health bar
         this.createHealthBar();
@@ -98,10 +125,20 @@ export class PlayGame extends Phaser.Scene {
         // create bullets display
         this.createBulletsDisplay();
 
+        // create upgrade bar
+        this.createUpgradeBar();
+
+        // start ore spawning
+        this.startOreSpawning();
+
         // show initial wave announcement
         this.showWaveAnnouncement(1);
 
-        // set keyboard controls
+        // Detect mobile device
+        this.isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+                       (window.innerWidth <= 768 && 'ontouchstart' in window);
+        
+        // set keyboard controls (for desktop)
         const keyboard : Phaser.Input.Keyboard.KeyboardPlugin = this.input.keyboard as Phaser.Input.Keyboard.KeyboardPlugin; 
         this.controlKeys = keyboard.addKeys({
             'up'    : Phaser.Input.Keyboard.KeyCodes.W,
@@ -109,6 +146,11 @@ export class PlayGame extends Phaser.Scene {
             'down'  : Phaser.Input.Keyboard.KeyCodes.S,
             'right' : Phaser.Input.Keyboard.KeyCodes.D
         });
+        
+        // Create virtual joystick for mobile
+        if (this.isMobile) {
+            this.createVirtualJoystick();
+        }
         
         // timer event to add enemies
         this.enemyTimerEvent = this.time.addEvent({
@@ -146,9 +188,10 @@ export class PlayGame extends Phaser.Scene {
             },
         });
 
-        // timer event to fire bullets
+        // timer event to fire bullets (with rate multiplier)
+        const currentBulletRate = GameOptions.bulletRate * this.bulletRateMultiplier;
         this.bulletTimerEvent = this.time.addEvent({
-            delay       : GameOptions.bulletRate,
+            delay       : currentBulletRate,
             loop        : true,
             callback    : () => {
                 if (!this.player || !this.enemyGroup || !this.bulletGroup) return;
@@ -210,13 +253,13 @@ export class PlayGame extends Phaser.Scene {
                 this.bulletGroup!.killAndHide(bullet);
                 bullet.body.checkCollision.none = true;
                 
-                // Deal damage to enemy using the damage value from the contract
+                // Deal damage to enemy using the damage value from the contract + bonus
                 const currentHealth = this.enemyHealthMap.get(enemy) ?? 0;
-                // Use bulletDamage from contract, but ensure it's at least 1
-                const damageToDeal = Math.max(1, Math.floor(this.bulletDamage));
-                const newHealth = Math.max(0, currentHealth - damageToDeal);
+                // Use bulletDamage from contract + damage bonus, but ensure it's at least 1
+                const totalDamage = Math.max(1, Math.floor(this.bulletDamage + this.damageBonus));
+                const newHealth = Math.max(0, currentHealth - totalDamage);
                 
-                console.log(`Enemy hit! Health: ${currentHealth} -> ${newHealth} (damage: ${damageToDeal}) - Bullet NOT counted`);
+                console.log(`Enemy hit! Health: ${currentHealth} -> ${newHealth} (damage: ${totalDamage}) - Bullet NOT counted`);
                 
                 if (newHealth <= 0) {
                     // Enemy is dead, remove it
@@ -234,6 +277,13 @@ export class PlayGame extends Phaser.Scene {
         if (this.player && this.enemyGroup) {
             this.physics.add.overlap(this.player, this.enemyGroup, () => {
                 this.takeDamage();
+            });
+        }
+
+        // player Vs ore collision (collect ores)
+        if (this.player && this.oreGroup) {
+            this.physics.add.overlap(this.player, this.oreGroup, (_player : any, ore : any) => {
+                this.collectOre(ore);
             });
         }  
     }
@@ -408,8 +458,9 @@ export class PlayGame extends Phaser.Scene {
             this.player.y + GameOptions.healthBarOffsetY
         );
 
-        // update health bar width based on current health
-        const healthPercentage : number = this.playerHealth / GameOptions.playerMaxHealth;
+        // update health bar width based on current health (with bonus)
+        const maxHealth = GameOptions.playerMaxHealth + this.maxHealthBonus;
+        const healthPercentage : number = this.playerHealth / maxHealth;
         this.healthBarFg.setSize(GameOptions.healthBarWidth * healthPercentage, GameOptions.healthBarHeight);
 
         // change color based on health (green -> yellow -> red)
@@ -470,6 +521,17 @@ export class PlayGame extends Phaser.Scene {
         if (this.enemyGroup) {
             this.enemyGroup.clear(true, true);
         }
+        if (this.oreGroup) {
+            this.oreGroup.clear(true, true);
+        }
+        
+        // Reset all upgrade stats
+        this.speedMultiplier = 1.0;
+        this.bulletRateMultiplier = 1.0;
+        this.damageBonus = 0;
+        this.maxHealthBonus = 0;
+        this.bulletsPerShot = 1;
+        this.oresCollected = 0;
         
         // Dispatch custom event to notify React component
         window.dispatchEvent(new CustomEvent('gameOver'));
@@ -504,13 +566,14 @@ export class PlayGame extends Phaser.Scene {
             this.player.setFlipX(false);
         }
         
-        // set player velocity according to movement direction
+        // set player velocity according to movement direction (with speed multiplier)
+        const currentSpeed = GameOptions.playerSpeed * this.speedMultiplier;
         this.player.setVelocity(0, 0);
         if (movementDirection.x == 0 || movementDirection.y == 0) {
-            this.player.setVelocity(movementDirection.x * GameOptions.playerSpeed, movementDirection.y * GameOptions.playerSpeed);
+            this.player.setVelocity(movementDirection.x * currentSpeed, movementDirection.y * currentSpeed);
         }
         else {
-            this.player.setVelocity(movementDirection.x * GameOptions.playerSpeed / Math.sqrt(2), movementDirection.y * GameOptions.playerSpeed / Math.sqrt(2));    
+            this.player.setVelocity(movementDirection.x * currentSpeed / Math.sqrt(2), movementDirection.y * currentSpeed / Math.sqrt(2));    
         } 
 
         // move enemies towards player
@@ -636,6 +699,353 @@ export class PlayGame extends Phaser.Scene {
                 this.bulletsText.setColor('#ffff00'); // yellow when plenty
             }
         }
+    }
+
+    // method to create upgrade bar
+    createUpgradeBar() : void {
+        const barWidth = 300;
+        const barHeight = 20;
+        const barX = GameOptions.gameSize.width / 2;
+        const barY = 20;
+
+        // Upgrade bar background
+        this.upgradeBarBg = this.add.rectangle(barX, barY, barWidth, barHeight, 0x000000, 0.7);
+        this.upgradeBarBg.setDepth(2000);
+        this.upgradeBarBg.setScrollFactor(0); // fixed to camera
+
+        // Upgrade bar foreground (progress)
+        this.upgradeBarFg = this.add.rectangle(
+            barX - barWidth / 2,
+            barY,
+            0,
+            barHeight,
+            0x00aaff, // Blue color
+            1
+        );
+        this.upgradeBarFg.setOrigin(0, 0.5); // left-aligned
+        this.upgradeBarFg.setDepth(2001);
+        this.upgradeBarFg.setScrollFactor(0); // fixed to camera
+
+        // Label text
+        const labelText = this.add.text(barX, barY - 25, 'Upgrade Progress', {
+            fontSize: '16px',
+            color: '#ffffff',
+            fontFamily: 'Arial',
+            stroke: '#000000',
+            strokeThickness: 2
+        });
+        labelText.setOrigin(0.5, 0.5);
+        labelText.setDepth(2002);
+        labelText.setScrollFactor(0);
+    }
+
+    // method to start ore spawning
+    startOreSpawning() : void {
+        // Spawn ores periodically
+        this.time.addEvent({
+            delay: 2000, // Spawn every 2 seconds
+            loop: true,
+            callback: () => {
+                if (!this.player || !this.oreGroup) return;
+
+                // Spawn ore at random position (not too close to player)
+                const minDistance = 200;
+                const maxDistance = 600;
+                const angle = Math.random() * Math.PI * 2;
+                const distance = minDistance + Math.random() * (maxDistance - minDistance);
+                
+                const spawnX = this.player.x + Math.cos(angle) * distance;
+                const spawnY = this.player.y + Math.sin(angle) * distance;
+                
+                // Clamp to map bounds
+                const margin = 50;
+                const clampedX = Phaser.Math.Clamp(spawnX, margin, GameOptions.mapSize.width - margin);
+                const clampedY = Phaser.Math.Clamp(spawnY, margin, GameOptions.mapSize.height - margin);
+                
+                // Create blue ore (using a circle for now, can be replaced with sprite)
+                const ore = this.add.circle(clampedX, clampedY, 15, 0x00aaff, 1); // Blue circle
+                ore.setStrokeStyle(2, 0x0088ff, 1);
+                
+                // Add glow effect
+                this.tweens.add({
+                    targets: ore,
+                    alpha: { from: 0.7, to: 1 },
+                    scale: { from: 0.9, to: 1.1 },
+                    duration: 1000,
+                    yoyo: true,
+                    repeat: -1,
+                    ease: 'Sine.easeInOut'
+                });
+                
+                this.physics.add.existing(ore, false);
+                this.oreGroup.add(ore);
+            }
+        });
+    }
+
+    // method to collect ore
+    collectOre(ore : any) : void {
+        // Remove ore
+        this.oreGroup!.killAndHide(ore);
+        ore.body.checkCollision.none = true;
+        
+        // Increase collected ores
+        this.oresCollected++;
+        this.updateUpgradeBar();
+        
+        // Check if bar is full
+        if (this.oresCollected >= this.oresNeededForUpgrade) {
+            this.applyRandomUpgrade();
+            this.oresCollected = 0; // Reset counter
+            this.updateUpgradeBar();
+        }
+    }
+
+    // method to update upgrade bar
+    updateUpgradeBar() : void {
+        if (!this.upgradeBarFg || !this.upgradeBarBg) return;
+        
+        const progress = this.oresCollected / this.oresNeededForUpgrade;
+        const barWidth = 300;
+        const barHeight = 20;
+        
+        this.upgradeBarFg.setSize(barWidth * progress, barHeight);
+    }
+
+    // method to apply random upgrade
+    applyRandomUpgrade() : void {
+        const upgrades = [
+            'speed',
+            'reload',
+            'damage',
+            'health',
+            'multishot'
+        ];
+        
+        const randomUpgrade = upgrades[Math.floor(Math.random() * upgrades.length)];
+        let upgradeMessage = '';
+        
+        switch (randomUpgrade) {
+            case 'speed':
+                this.speedMultiplier += 0.2; // Increase speed by 20%
+                upgradeMessage = 'Speed Increased!';
+                break;
+            case 'reload':
+                this.bulletRateMultiplier = Math.max(0.3, this.bulletRateMultiplier - 0.1); // Decrease reload time (lower = faster)
+                upgradeMessage = 'Reload Speed Increased!';
+                // Update bullet timer with new rate
+                if (this.bulletTimerEvent) {
+                    this.bulletTimerEvent.remove();
+                    const currentBulletRate = GameOptions.bulletRate * this.bulletRateMultiplier;
+                    this.bulletTimerEvent = this.time.addEvent({
+                        delay: currentBulletRate,
+                        loop: true,
+                        callback: () => {
+                            // Reuse the existing bullet firing logic
+                            if (!this.player || !this.enemyGroup || !this.bulletGroup) return;
+                            
+                            if (this.bulletsRemaining <= 0) {
+                                this.endGame();
+                                return;
+                            }
+                            
+                            const closestEnemy : any = this.physics.closest(this.player, this.enemyGroup.getMatching('visible', true));
+                            if (closestEnemy != null) {
+                                for (let i = 0; i < this.bulletsPerShot; i++) {
+                                    const bullet : Phaser.Types.Physics.Arcade.SpriteWithDynamicBody = this.physics.add.sprite(this.player.x, this.player.y, 'bullet');
+                                    bullet.setDisplaySize(40, 40);
+                                    
+                                    let angle : number = Phaser.Math.Angle.Between(this.player.x, this.player.y, closestEnemy.x, closestEnemy.y);
+                                    if (this.bulletsPerShot > 1 && i > 0) {
+                                        const spreadAngle = (i - (this.bulletsPerShot - 1) / 2) * 0.2;
+                                        angle += spreadAngle;
+                                    }
+                                    bullet.setRotation(angle);
+                                    bullet.body.setSize(35, 35);
+                                    (bullet as any).targetEnemy = closestEnemy;
+                                    (bullet as any).hasHitEnemy = false;
+                                    this.activeBullets.add(bullet);
+                                    this.bulletGroup.add(bullet);
+                                    const targetX = closestEnemy.x + (i - (this.bulletsPerShot - 1) / 2) * 20;
+                                    const targetY = closestEnemy.y;
+                                    this.physics.moveTo(bullet, targetX, targetY, GameOptions.bulletSpeed);
+                                    this.time.delayedCall(5000, () => {
+                                        if (this.activeBullets.has(bullet) && !(bullet as any).hasHitEnemy) {
+                                            this.handleBulletMiss(bullet);
+                                        }
+                                    });
+                                }
+                            }
+                        }
+                    });
+                }
+                break;
+            case 'damage':
+                this.damageBonus += 10; // Increase damage by 10
+                upgradeMessage = 'Damage +10!';
+                break;
+            case 'health':
+                this.maxHealthBonus += 1; // Increase max health by 1
+                this.playerHealth += 1; // Also heal by 1
+                upgradeMessage = 'Max Health +1!';
+                break;
+            case 'multishot':
+                this.bulletsPerShot += 1; // Fire one more bullet
+                upgradeMessage = 'Multi-Shot!';
+                break;
+        }
+        
+        // Show upgrade notification
+        this.showUpgradeNotification(upgradeMessage);
+        
+        console.log(`Upgrade applied: ${upgradeMessage}`, {
+            speed: this.speedMultiplier,
+            reload: this.bulletRateMultiplier,
+            damage: this.damageBonus,
+            health: this.maxHealthBonus,
+            multishot: this.bulletsPerShot
+        });
+    }
+
+    // method to create virtual joystick for mobile
+    createVirtualJoystick() : void {
+        // Create a simple virtual joystick using Phaser graphics
+        const joystickBase = this.add.circle(
+            GameOptions.gameSize.width - 120, // Position from right
+            GameOptions.gameSize.height - 120, // Position from bottom
+            60, // Base radius
+            0x333333, // Dark gray
+            0.7 // Semi-transparent
+        );
+        joystickBase.setScrollFactor(0); // Fixed to camera
+        joystickBase.setDepth(2000);
+        joystickBase.setInteractive({ draggable: true });
+        
+        const joystickStick = this.add.circle(
+            GameOptions.gameSize.width - 120,
+            GameOptions.gameSize.height - 120,
+            30, // Stick radius
+            0x666666, // Lighter gray
+            0.9
+        );
+        joystickStick.setScrollFactor(0); // Fixed to camera
+        joystickStick.setDepth(2001);
+        
+        // Store joystick data
+        this.joystick = {
+            base: joystickBase,
+            stick: joystickStick,
+            baseX: GameOptions.gameSize.width - 120,
+            baseY: GameOptions.gameSize.height - 120,
+            maxDistance: 40, // Maximum distance stick can move from base
+            force: { x: 0, y: 0 }
+        };
+        
+        // Handle joystick dragging
+        this.input.on('drag', (_pointer: Phaser.Input.Pointer, gameObject: Phaser.GameObjects.GameObject, dragX: number, dragY: number) => {
+            if (gameObject === joystickStick && this.joystick) {
+                const dx = dragX - this.joystick.baseX;
+                const dy = dragY - this.joystick.baseY;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance > this.joystick.maxDistance) {
+                    // Clamp to max distance
+                    const angle = Math.atan2(dy, dx);
+                    joystickStick.x = this.joystick.baseX + Math.cos(angle) * this.joystick.maxDistance;
+                    joystickStick.y = this.joystick.baseY + Math.sin(angle) * this.joystick.maxDistance;
+                } else {
+                    joystickStick.x = dragX;
+                    joystickStick.y = dragY;
+                }
+                
+                // Calculate force (normalized)
+                this.joystick.force.x = (joystickStick.x - this.joystick.baseX) / this.joystick.maxDistance;
+                this.joystick.force.y = (joystickStick.y - this.joystick.baseY) / this.joystick.maxDistance;
+            }
+        });
+        
+        // Reset joystick when drag ends
+        this.input.on('dragend', (_pointer: Phaser.Input.Pointer, gameObject: Phaser.GameObjects.GameObject) => {
+            if (gameObject === joystickStick) {
+                // Smoothly return to center
+                this.tweens.add({
+                    targets: joystickStick,
+                    x: this.joystick.baseX,
+                    y: this.joystick.baseY,
+                    duration: 200,
+                    ease: 'Power2'
+                });
+                this.joystick.force.x = 0;
+                this.joystick.force.y = 0;
+            }
+        });
+        
+        // Also handle touch input for the base (to start dragging from anywhere on base)
+        joystickBase.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+            const localX = pointer.x - this.joystick.baseX;
+            const localY = pointer.y - this.joystick.baseY;
+            const distance = Math.sqrt(localX * localX + localY * localY);
+            
+            if (distance <= this.joystick.maxDistance) {
+                joystickStick.x = pointer.x;
+                joystickStick.y = pointer.y;
+            } else {
+                const angle = Math.atan2(localY, localX);
+                joystickStick.x = this.joystick.baseX + Math.cos(angle) * this.joystick.maxDistance;
+                joystickStick.y = this.joystick.baseY + Math.sin(angle) * this.joystick.maxDistance;
+            }
+            
+            this.joystick.force.x = (joystickStick.x - this.joystick.baseX) / this.joystick.maxDistance;
+            this.joystick.force.y = (joystickStick.y - this.joystick.baseY) / this.joystick.maxDistance;
+        });
+    }
+
+    // method to show upgrade notification
+    showUpgradeNotification(message : string) : void {
+        // Remove previous notification if exists
+        if (this.upgradeText) {
+            this.upgradeText.destroy();
+        }
+        
+        // Create upgrade notification text
+        this.upgradeText = this.add.text(
+            GameOptions.gameSize.width / 2,
+            GameOptions.gameSize.height / 2,
+            message,
+            {
+                fontSize: '48px',
+                color: '#00ff00', // Green color
+                fontFamily: 'Arial',
+                stroke: '#000000',
+                strokeThickness: 6,
+                shadow: {
+                    offsetX: 2,
+                    offsetY: 2,
+                    color: '#000000',
+                    blur: 8,
+                    stroke: true,
+                    fill: true
+                }
+            }
+        );
+        this.upgradeText.setOrigin(0.5, 0.5);
+        this.upgradeText.setDepth(3000);
+        this.upgradeText.setScrollFactor(0); // fixed to camera
+        
+        // Animate notification
+        this.tweens.add({
+            targets: this.upgradeText,
+            alpha: { from: 1, to: 0 },
+            scale: { from: 1, to: 1.5 },
+            duration: 2000,
+            ease: 'Power2',
+            onComplete: () => {
+                if (this.upgradeText) {
+                    this.upgradeText.destroy();
+                    this.upgradeText = null;
+                }
+            }
+        });
     }
 
     // method to update timer display
