@@ -1,4 +1,4 @@
-#Token Strike
+Token Strike
 
 Token Strike is a Web3-powered arcade shooter where your real crypto deposits become your in-game strength. Your bullets, damage, and power-ups scale dynamically based on the USD value of the tokens you deposit.
 
