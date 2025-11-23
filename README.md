@@ -1,73 +1,49 @@
-# React + TypeScript + Vite
+#Token Strike
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Token Strike is a Web3-powered arcade shooter where your real crypto deposits become your in-game strength. Your bullets, damage, and power-ups scale dynamically based on the USD value of the tokens you deposit.
 
-Currently, two official plugins are available:
+Built for the World App Mini-App ecosystem, Token Strike blends on-chain logic with a fun retro arcade experience.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+🚀 How It Works
 
-## React Compiler
+Deposit supported tokens (WLD, WETH, WBTC) directly into the smart contract.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+The contract uses Pyth on-chain price feeds to calculate your USD value.
 
-## Expanding the ESLint configuration
+Your bullets and damage auto-update based on simple formulas using your deposit value.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+Launch the mini-app in World App and start playing instantly.
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+🕹️ Gameplay
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+Built using Phaser, a lightweight 2D game engine.
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+Retro, pixel-style characters and effects bring the shooter experience alive.
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Your guns, power, and stats depend entirely on your token value — the more you deposit, the stronger you get.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+🔗 Tech Overview (Simplified)
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+Smart Contract: Solidity contract deployed on World Chain, storing balances and calculating stats.
+
+Price Feeds: Live token prices fetched using Pyth’s on-chain feeds.
+
+Frontend: TypeScript app using ethers.js, Wagmi, and AppKit for wallet connections.
+
+Mini-App Integration: Packaged and deployed to run inside the World App.
+
+Game Engine: Phaser for animations, controls, and gameplay loops.
+
+📦 Features
+
+Real-time stat adjustments
+
+Multi-token support
+
+Seamless wallet connection
+
+Fast deposits/withdrawals
+
+On-chain transparency
+
+Smooth World App mini-app experience
