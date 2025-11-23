@@ -28,7 +28,7 @@ contract GameBank is ReentrancyGuard {
     // Supported tokens
     address public constant WBTC = 0x03C7054BCB39f7b2e5B2c7AcB37583e32D70Cfa3;
     address public constant WETH = 0x4200000000000000000000000000000000000006;
-    address public constant WLD  = 0x814213d11614D8A4Cc1F2e3425Db0F763bca979B;
+    address public constant WLD  = 0x2cFc85d8E48F8EAB294be644d9E25C3030863003;
 
     // Pyth Feed IDs
     bytes32 public constant FEED_WBTC =

@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
-import { useAccount, useBalance, useReadContract, useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi'
+import { useAccount, useBalance, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
 import { parseUnits, formatUnits, maxUint256 } from 'viem'
-import { GAME_BANK_ADDRESS, GAME_BANK_ABI, GAME_BANK_CHAIN_ID, TOKENS, TOKEN_INFO, ERC20_ABI } from '../config/contract'
-import { fetchPythPriceUpdates } from '../services/pyth'
+import { GAME_BANK_ADDRESS, GAME_BANK_ABI, TOKENS, TOKEN_INFO, ERC20_ABI } from '../config/contract'
+import { fetchPythPriceUpdateForToken } from '../services/pyth'
 import './TransactionModal.css'
 
 interface TransactionModalProps {
@@ -13,7 +13,6 @@ interface TransactionModalProps {
 
 export function TransactionModal({ isOpen, onClose, mode }: TransactionModalProps) {
 	const { address } = useAccount()
-	const chainId = useChainId()
 	const [selectedToken, setSelectedToken] = useState<keyof typeof TOKENS>('WLD')
 	const [amount, setAmount] = useState('')
 	const [isLoading, setIsLoading] = useState(false)
@@ -21,25 +20,24 @@ export function TransactionModal({ isOpen, onClose, mode }: TransactionModalProp
 
 	const tokenAddress = TOKENS[selectedToken]
 	const tokenInfo = TOKEN_INFO[tokenAddress]
-	const isCorrectChain = chainId === GAME_BANK_CHAIN_ID
 
-	// Get user's token balance - use wallet's current chain
+	// Get user's token balance
 	const { data: tokenBalance, refetch: refetchBalance } = useBalance({
 		address,
 		token: tokenAddress as `0x${string}`,
 		query: {
-			enabled: !!address && isOpen && isCorrectChain,
+			enabled: !!address && isOpen,
 		},
 	})
 
-	// Get user's deposited balance in contract - use wallet's current chain
+	// Get user's deposited balance in contract
 	const { data: depositedBalances } = useReadContract({
 		address: GAME_BANK_ADDRESS,
 		abi: GAME_BANK_ABI,
 		functionName: 'getBalances',
 		args: address ? [address] : undefined,
 		query: {
-			enabled: !!address && isOpen && isCorrectChain,
+			enabled: !!address && isOpen,
 		},
 	})
 
@@ -48,14 +46,14 @@ export function TransactionModal({ isOpen, onClose, mode }: TransactionModalProp
 		hash,
 	})
 
-	// Get allowance - use wallet's current chain
+	// Get allowance
 	const { data: allowance } = useReadContract({
 		address: tokenAddress as `0x${string}`,
 		abi: ERC20_ABI,
 		functionName: 'allowance',
 		args: address && tokenAddress ? [address, GAME_BANK_ADDRESS] : undefined,
 		query: {
-			enabled: !!address && isOpen && mode === 'deposit' && isCorrectChain,
+			enabled: !!address && isOpen && mode === 'deposit',
 		},
 	})
 
@@ -91,7 +89,14 @@ export function TransactionModal({ isOpen, onClose, mode }: TransactionModalProp
 	}
 
 	const handleSubmit = async () => {
+		console.log('=== handleSubmit called ===')
+		console.log('Address:', address)
+		console.log('Amount:', amount)
+		console.log('Mode:', mode)
+		console.log('Selected token:', selectedToken)
+		
 		if (!address || !amount || parseFloat(amount) <= 0) {
+			console.log('Validation failed - missing address or invalid amount')
 			setError('Please enter a valid amount')
 			return
 		}
@@ -100,18 +105,36 @@ export function TransactionModal({ isOpen, onClose, mode }: TransactionModalProp
 		setIsLoading(true)
 
 		try {
+			console.log('=== Converting amount to wei ===')
+			console.log('Amount string:', amount)
+			console.log('Token decimals:', tokenInfo.decimals)
 			const amountWei = parseUnits(amount, tokenInfo.decimals)
+			console.log('Amount (wei):', amountWei.toString())
 
 			// Check balance
 			if (mode === 'deposit') {
+				console.log('=== Deposit mode - checking balance ===')
+				console.log('Token balance:', tokenBalance?.value?.toString())
+				console.log('Amount wei:', amountWei.toString())
+				
 				if (!tokenBalance || tokenBalance.value < amountWei) {
+					console.log('Insufficient balance')
 					setError('Insufficient balance')
 					setIsLoading(false)
 					return
 				}
 
 				// Check and handle approval
+				console.log('=== Checking allowance ===')
+				console.log('Current allowance:', allowance?.toString())
+				console.log('Required amount:', amountWei.toString())
+				
 				if (!allowance || allowance < amountWei) {
+					console.log('=== Approval needed - requesting approval ===')
+					console.log('Token address:', tokenAddress)
+					console.log('Spender (contract):', GAME_BANK_ADDRESS)
+					console.log('Amount (maxUint256):', maxUint256.toString())
+					
 					// Need to approve first
 					writeApprove({
 						address: tokenAddress as `0x${string}`,
@@ -119,25 +142,37 @@ export function TransactionModal({ isOpen, onClose, mode }: TransactionModalProp
 						functionName: 'approve',
 						args: [GAME_BANK_ADDRESS, maxUint256],
 					}, {
-						onSuccess: async () => {
+						onSuccess: async (hash) => {
+							console.log('=== Approval transaction sent ===')
+							console.log('Approval transaction hash:', hash)
+							console.log('Waiting 3 seconds for approval to be mined...')
 							// Wait a bit for approval to be mined, then proceed with deposit
 							await new Promise(resolve => setTimeout(resolve, 3000))
+							console.log('Proceeding with deposit after approval...')
 							await executeDeposit(amountWei)
 						},
 						onError: (err) => {
+							console.error('=== Approval error ===')
+							console.error('Error:', err)
 							setError(err.message)
 							setIsLoading(false)
 						},
 					})
 					return
+				} else {
+					console.log('=== Sufficient allowance - proceeding directly ===')
 				}
 			} else {
 				// Withdraw mode - check deposited balance
+				console.log('=== Withdraw mode - checking deposited balance ===')
 				if (depositedBalances) {
 					const [wbtc, weth, wld] = depositedBalances as [bigint, bigint, bigint]
 					const deposited = selectedToken === 'WBTC' ? wbtc : selectedToken === 'WETH' ? weth : wld
+					console.log('Deposited balance:', deposited.toString())
+					console.log('Requested amount:', amountWei.toString())
 					
 					if (deposited < amountWei) {
+						console.log('Insufficient deposited balance')
 						setError('Insufficient deposited balance')
 						setIsLoading(false)
 						return
@@ -145,8 +180,11 @@ export function TransactionModal({ isOpen, onClose, mode }: TransactionModalProp
 				}
 			}
 
+			console.log('=== Executing transaction ===')
 			await executeTransaction(amountWei)
 		} catch (err: any) {
+			console.error('=== handleSubmit error ===')
+			console.error('Error:', err)
 			setError(err.message || 'Transaction failed')
 			setIsLoading(false)
 		}
@@ -165,65 +203,90 @@ export function TransactionModal({ isOpen, onClose, mode }: TransactionModalProp
 
 	const executeTransaction = async (amountWei: bigint) => {
 		try {
-			console.log('Starting transaction execution...')
+			console.log('=== Starting Transaction Execution ===')
 			console.log('Mode:', mode)
+			console.log('Selected token:', selectedToken)
 			console.log('Token address:', tokenAddress)
+			console.log('Amount entered:', amount)
 			console.log('Amount (wei):', amountWei.toString())
+			console.log('Token decimals:', tokenInfo.decimals)
 			
-			// Fetch Pyth price updates
-			console.log('Fetching Pyth price updates...')
-			const priceUpdates = await fetchPythPriceUpdates()
-			console.log('Received price updates:', priceUpdates.length)
-			console.log('Price updates:', priceUpdates)
+			// Fetch Pyth price update for the selected token only
+			console.log('=== Fetching Pyth Price Update ===')
+			console.log('Fetching price update for token:', selectedToken)
+			const priceUpdateHex = await fetchPythPriceUpdateForToken(selectedToken)
+			console.log('Received price update hex (first 100 chars):', priceUpdateHex.substring(0, 100) + '...')
+			console.log('Price update hex full length:', priceUpdateHex.length)
 			
-			// Convert string array to bytes array format
-			const priceUpdateBytes = priceUpdates.map(update => {
-				const bytes = update as `0x${string}`
-				console.log('Price update bytes length:', bytes.length)
-				return bytes
-			})
+			// Convert to bytes array format (array with single element)
+			const priceUpdateBytes: `0x${string}`[] = [priceUpdateHex as `0x${string}`]
+			console.log('Price update bytes array length:', priceUpdateBytes.length)
+			console.log('Price update bytes[0] (first 100 chars):', priceUpdateBytes[0].substring(0, 100) + '...')
 
-			console.log('Prepared price update bytes:', priceUpdateBytes.length)
+			console.log('=== Contract Call Parameters ===')
 			console.log('Contract address:', GAME_BANK_ADDRESS)
-			console.log('Chain ID:', GAME_BANK_CHAIN_ID)
+			console.log('Function name:', mode === 'deposit' ? 'deposit' : 'withdraw')
+			console.log('Args:')
+			console.log('  - token:', tokenAddress)
+			console.log('  - amount (wei):', amountWei.toString())
+			console.log('  - priceUpdate (bytes[]):', priceUpdateBytes.length, 'element(s)')
+
+			// Estimate Pyth fee - send a small amount of ETH (0.001 ETH should be enough)
+			// The contract will refund any excess
+			const pythFeeEstimate = parseUnits('0.001', 18) // 0.001 ETH
+			console.log('Pyth fee estimate (wei):', pythFeeEstimate.toString())
+			console.log('Sending transaction with value:', pythFeeEstimate.toString(), 'wei')
 
 			if (mode === 'deposit') {
-				console.log('Calling deposit function...')
-			writeContract({
-				address: GAME_BANK_ADDRESS,
-				abi: GAME_BANK_ABI,
-				functionName: 'deposit',
-				args: [tokenAddress, amountWei, priceUpdateBytes],
-			}, {
+				console.log('=== Calling deposit() function ===')
+				writeContract({
+					address: GAME_BANK_ADDRESS,
+					abi: GAME_BANK_ABI,
+					functionName: 'deposit',
+					args: [tokenAddress, amountWei, priceUpdateBytes],
+					value: pythFeeEstimate, // Send ETH for Pyth update fee
+				}, {
 					onSuccess: (hash) => {
-						console.log('Deposit transaction hash:', hash)
+						console.log('=== Deposit Transaction Success ===')
+						console.log('Transaction hash:', hash)
+						console.log('Waiting for confirmation...')
 					},
 					onError: (err) => {
-						console.error('Deposit error:', err)
+						console.error('=== Deposit Transaction Error ===')
+						console.error('Error details:', err)
+						console.error('Error message:', err.message)
 						setError(err.message)
 						setIsLoading(false)
 					},
 				})
 			} else {
-				console.log('Calling withdraw function...')
+				console.log('=== Calling withdraw() function ===')
 				writeContract({
 					address: GAME_BANK_ADDRESS,
 					abi: GAME_BANK_ABI,
 					functionName: 'withdraw',
 					args: [tokenAddress, amountWei, priceUpdateBytes],
+					value: pythFeeEstimate, // Send ETH for Pyth update fee
 				}, {
 					onSuccess: (hash) => {
-						console.log('Withdraw transaction hash:', hash)
+						console.log('=== Withdraw Transaction Success ===')
+						console.log('Transaction hash:', hash)
+						console.log('Waiting for confirmation...')
 					},
 					onError: (err) => {
-						console.error('Withdraw error:', err)
+						console.error('=== Withdraw Transaction Error ===')
+						console.error('Error details:', err)
+						console.error('Error message:', err.message)
 						setError(err.message)
 						setIsLoading(false)
 					},
 				})
 			}
 		} catch (err: any) {
-			console.error('Transaction execution error:', err)
+			console.error('=== Transaction Execution Error ===')
+			console.error('Error type:', err?.constructor?.name)
+			console.error('Error message:', err?.message)
+			console.error('Error stack:', err?.stack)
 			setError(err.message || 'Failed to fetch price updates')
 			setIsLoading(false)
 		}
@@ -248,19 +311,12 @@ export function TransactionModal({ isOpen, onClose, mode }: TransactionModalProp
 				</div>
 
 				<div className="modal-body">
-					{!isCorrectChain && (
-						<div className="error-message">
-							Please switch to World Chain Sepolia (Chain ID: {GAME_BANK_CHAIN_ID}) to use this feature.
-							Current chain: {chainId}
-						</div>
-					)}
-					
 					<div className="token-selector">
 						<label>Select Token:</label>
 						<select 
 							value={selectedToken} 
 							onChange={(e) => setSelectedToken(e.target.value as keyof typeof TOKENS)}
-							disabled={isLoading || !isCorrectChain}
+							disabled={isLoading}
 						>
 							<option value="WBTC">WBTC</option>
 							<option value="WETH">WETH</option>
@@ -276,21 +332,20 @@ export function TransactionModal({ isOpen, onClose, mode }: TransactionModalProp
 								value={amount}
 								onChange={(e) => setAmount(e.target.value)}
 								placeholder="0.0"
-								disabled={isLoading || !isCorrectChain}
+								disabled={isLoading}
 								step="any"
 								min="0"
 							/>
 							<button 
 								className="max-button" 
 								onClick={handleMax}
-								disabled={isLoading || !isCorrectChain}
+								disabled={isLoading}
 							>
 								MAX
 							</button>
 						</div>
 						<div className="balance-info">
 							Available: {parseFloat(availableBalance).toFixed(6)} {tokenInfo.symbol}
-							{!isCorrectChain && ' (Switch to correct chain)'}
 						</div>
 					</div>
 
@@ -314,7 +369,7 @@ export function TransactionModal({ isOpen, onClose, mode }: TransactionModalProp
 					<button 
 						className="modal-button submit-button" 
 						onClick={handleSubmit}
-						disabled={isLoading || isPending || isConfirming || !amount || parseFloat(amount) <= 0 || !isCorrectChain}
+						disabled={isLoading || isPending || isConfirming || !amount || parseFloat(amount) <= 0}
 					>
 						{isLoading || isPending || isConfirming 
 							? 'Processing...' 

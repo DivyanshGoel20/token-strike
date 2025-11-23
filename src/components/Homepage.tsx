@@ -1,43 +1,79 @@
 import { useState, useEffect } from 'react'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
-import { useAccount, useReadContract, useChainId } from 'wagmi'
+import { useAccount, useReadContract } from 'wagmi'
 import { formatUnits } from 'viem'
-import { GAME_BANK_ADDRESS, GAME_BANK_ABI, GAME_BANK_CHAIN_ID, TOKEN_INFO, TOKENS } from '../config/contract'
+import { GAME_BANK_ADDRESS, GAME_BANK_ABI, TOKEN_INFO, TOKENS } from '../config/contract'
 import { TransactionModal } from './TransactionModal'
 import { Game } from './Game'
 import './Homepage.css'
 
 export function Homepage() {
 	const { isConnected, address } = useAccount()
-	const chainId = useChainId()
 	const [depositModalOpen, setDepositModalOpen] = useState(false)
 	const [withdrawModalOpen, setWithdrawModalOpen] = useState(false)
 	const [gameStarted, setGameStarted] = useState(false)
 
-	// Check if user is on the correct chain
-	const isCorrectChain = chainId === GAME_BANK_CHAIN_ID
-
-	// Fetch user stats - only when on correct chain
-	const { data: stats, refetch: refetchStats } = useReadContract({
+	// Fetch user stats
+	const { data: stats, refetch: refetchStats, isLoading: isLoadingStats, error: statsError } = useReadContract({
 		address: GAME_BANK_ADDRESS,
 		abi: GAME_BANK_ABI,
 		functionName: 'getStats',
-		args: address ? [address] : undefined,
+		args: address ? [address as `0x${string}`] : undefined,
 		query: {
-			enabled: !!address && isConnected && isCorrectChain,
+			enabled: !!address && isConnected,
+			refetchInterval: 5000, // Refetch every 5 seconds
 		},
 	})
 
-	// Fetch user balances - only when on correct chain
-	const { data: balances, refetch: refetchBalances } = useReadContract({
+	// Fetch user balances
+	const { data: balances, refetch: refetchBalances, isLoading: isLoadingBalances } = useReadContract({
 		address: GAME_BANK_ADDRESS,
 		abi: GAME_BANK_ABI,
 		functionName: 'getBalances',
-		args: address ? [address] : undefined,
+		args: address ? [address as `0x${string}`] : undefined,
 		query: {
-			enabled: !!address && isConnected && isCorrectChain,
+			enabled: !!address && isConnected,
+			refetchInterval: 5000, // Refetch every 5 seconds
 		},
 	})
+
+	// Debug logs
+	useEffect(() => {
+		console.log('=== Debug Info ===')
+		console.log('Address:', address)
+		console.log('Is connected:', isConnected)
+		console.log('Is loading stats:', isLoadingStats)
+		console.log('Stats error:', statsError)
+		
+		if (stats) {
+			console.log('=== Stats from getStats ===')
+			console.log('Raw stats:', stats)
+			console.log('Stats type:', typeof stats)
+			console.log('Stats is array:', Array.isArray(stats))
+			console.log('Stats keys:', typeof stats === 'object' && stats !== null ? Object.keys(stats) : 'N/A')
+			
+			// Try different parsing methods
+			if (Array.isArray(stats)) {
+				console.log('Stats as array:', stats)
+				console.log('Bullets (index 0):', stats[0]?.toString())
+				console.log('Damage (index 1):', stats[1]?.toString())
+			} else if (typeof stats === 'object' && stats !== null) {
+				console.log('Stats as object:', stats)
+				console.log('Bullets property:', (stats as any).bullets?.toString())
+				console.log('Damage property:', (stats as any).damage?.toString())
+				console.log('Result property:', (stats as any).result)
+			}
+		} else {
+			console.log('Stats is null/undefined')
+		}
+		
+		if (balances) {
+			console.log('=== Balances from getBalances ===')
+			console.log('Raw balances:', balances)
+			console.log('Balances type:', typeof balances)
+			console.log('Balances array:', Array.isArray(balances) ? balances : 'Not an array')
+		}
+	}, [stats, balances, address, isConnected, isLoadingStats, statsError])
 
 	const handleStartGame = () => {
 		// Try to open in a new window first (works in regular browsers)
@@ -81,21 +117,68 @@ export function Homepage() {
 		setWithdrawModalOpen(true)
 	}
 
-	// Calculate total money deposited (simplified - in production, use current prices)
-	const totalDeposited = balances
+	// Parse balances from getBalances
+	const balanceData = balances
 		? (() => {
 			const [wbtc, weth, wld] = balances as [bigint, bigint, bigint]
-			// For now, just sum the raw values (in production, convert to USD using current prices)
-			const wbtcFormatted = parseFloat(formatUnits(wbtc, TOKEN_INFO[TOKENS.WBTC].decimals))
-			const wethFormatted = parseFloat(formatUnits(weth, TOKEN_INFO[TOKENS.WETH].decimals))
-			const wldFormatted = parseFloat(formatUnits(wld, TOKEN_INFO[TOKENS.WLD].decimals))
-			// This is a simplified calculation - in production, multiply by current token prices
-			return (wbtcFormatted + wethFormatted + wldFormatted).toFixed(4)
+			return {
+				wbtc: formatUnits(wbtc, TOKEN_INFO[TOKENS.WBTC].decimals),
+				weth: formatUnits(weth, TOKEN_INFO[TOKENS.WETH].decimals),
+				wld: formatUnits(wld, TOKEN_INFO[TOKENS.WLD].decimals),
+			}
 		})()
-		: '0'
+		: { wbtc: '0', weth: '0', wld: '0' }
 
-	const bullets = stats ? formatUnits((stats as [bigint, bigint])[0], 18) : '0'
-	const damage = stats ? formatUnits((stats as [bigint, bigint])[1], 18) : '0'
+	// Parse stats from getStats
+	const statsData = stats
+		? (() => {
+			try {
+				let bulletsRaw: bigint
+				let damageRaw: bigint
+				
+				// Handle different response formats
+				if (Array.isArray(stats)) {
+					// If it's an array [bullets, damage]
+					bulletsRaw = stats[0] as bigint
+					damageRaw = stats[1] as bigint
+				} else if (typeof stats === 'object' && stats !== null) {
+					// If it's an object { bullets, damage } or { result: [bullets, damage] }
+					const statsObj = stats as any
+					if (statsObj.result && Array.isArray(statsObj.result)) {
+						bulletsRaw = statsObj.result[0] as bigint
+						damageRaw = statsObj.result[1] as bigint
+					} else if (statsObj.bullets !== undefined && statsObj.damage !== undefined) {
+						bulletsRaw = statsObj.bullets as bigint
+						damageRaw = statsObj.damage as bigint
+					} else {
+						console.error('Unknown stats format:', statsObj)
+						return { bullets: '0', damage: '0' }
+					}
+				} else {
+					console.error('Stats is not in expected format:', stats)
+					return { bullets: '0', damage: '0' }
+				}
+				
+				console.log('Parsed bullets raw:', bulletsRaw?.toString())
+				console.log('Parsed damage raw:', damageRaw?.toString())
+				
+				// The contract returns values that are already in their final form
+				// Bullets and damage are stored as uint256 but are already the final values
+				// (not scaled by 18 decimals), so we convert BigInt to number directly
+				return {
+					bullets: bulletsRaw ? Number(bulletsRaw).toString() : '0',
+					damage: damageRaw ? Number(damageRaw).toString() : '0',
+				}
+			} catch (error) {
+				console.error('Error parsing stats:', error)
+				return { bullets: '0', damage: '0' }
+			}
+		})()
+		: { bullets: '0', damage: '0' }
+
+	const bulletsNumber = parseFloat(statsData.bullets)
+	const damageNumber = parseFloat(statsData.damage)
+	const hasBullets = bulletsNumber > 0
 
 	const handleModalClose = () => {
 		setDepositModalOpen(false)
@@ -117,23 +200,45 @@ export function Homepage() {
 					
 					{isConnected && (
 						<>
-							{!isCorrectChain && (
-								<div className="chain-warning">
-									Please switch to World Chain Sepolia (Chain ID: {GAME_BANK_CHAIN_ID})
-								</div>
-							)}
 							<div className="game-stats">
 								<div className="stat-item">
-									<span className="stat-label">Money Deposited:</span>
-									<span className="stat-value">{totalDeposited}</span>
-								</div>
-								<div className="stat-item">
 									<span className="stat-label">Number of Bullets:</span>
-									<span className="stat-value">{parseFloat(bullets).toFixed(2)}</span>
+									<span className="stat-value">
+										{isLoadingStats ? 'Loading...' : statsError ? 'Error' : bulletsNumber.toFixed(2)}
+									</span>
 								</div>
 								<div className="stat-item">
 									<span className="stat-label">Damage Power:</span>
-									<span className="stat-value">{parseFloat(damage).toFixed(2)}</span>
+									<span className="stat-value">
+										{isLoadingStats ? 'Loading...' : statsError ? 'Error' : damageNumber.toFixed(2)}
+									</span>
+								</div>
+								{statsError && (
+									<div style={{ color: 'red', fontSize: '0.8rem', marginTop: '0.5rem' }}>
+										Error: {statsError.message}
+									</div>
+								)}
+							</div>
+							
+							<div className="token-balances">
+								<h3 className="balances-title">Deposited Balances</h3>
+								<div className="balance-item">
+									<span className="balance-label">WBTC:</span>
+									<span className="balance-value">
+										{isLoadingBalances ? 'Loading...' : parseFloat(balanceData.wbtc).toFixed(6)}
+									</span>
+								</div>
+								<div className="balance-item">
+									<span className="balance-label">WETH:</span>
+									<span className="balance-value">
+										{isLoadingBalances ? 'Loading...' : parseFloat(balanceData.weth).toFixed(6)}
+									</span>
+								</div>
+								<div className="balance-item">
+									<span className="balance-label">WLD:</span>
+									<span className="balance-value">
+										{isLoadingBalances ? 'Loading...' : parseFloat(balanceData.wld).toFixed(6)}
+									</span>
 								</div>
 							</div>
 						</>
@@ -153,6 +258,7 @@ export function Homepage() {
 					<button 
 						className="start-game-button"
 						onClick={handleStartGame}
+						disabled={!hasBullets}
 					>
 						Start Game
 					</button>

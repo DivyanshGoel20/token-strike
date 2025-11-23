@@ -1,6 +1,6 @@
 // Contract configuration
 export const GAME_BANK_ADDRESS = '0xDdc2567AbCB9eCC1b21A50658219670463607CF9' as const
-export const GAME_BANK_CHAIN_ID = 480 // World Chain Sepolia
+export const GAME_BANK_CHAIN_ID = 480 // World Chain Mainnet
 
 // Token addresses - must match GameBank.sol
 export const TOKENS = {
